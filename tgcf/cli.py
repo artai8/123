@@ -68,11 +68,11 @@ def version_callback(value: bool):
 def version_check():  
     latver = latest_release("tgcf").version  
     if __version__ != latver:  
-        con.print(  
-            f"tgcf has a newer release {latver} availaible!\  
-            \nVisit http://bit.ly/update-tgcf",  
-            style="bold yellow",  
-        )  
+       con.print(  
+    f"tgcf has a newer release {latver} availaible!\n"  
+    "Visit http://bit.ly/update-tgcf",  
+    style="bold yellow",  
+    ) 
     else:  
         con.print(f"Running latest tgcf version {__version__}", style="bold green")  
   
