@@ -94,7 +94,7 @@ def render_telegram_login():
         # Save to file  
         write_config(CONFIG)  
         st.success("✅ Configuration saved successfully!")  
-        st.experimental_rerun()  
+        st.rerun()  # Fixed: Use st.rerun() instead of st.experimental_rerun()  
       
     # Display current configuration  
     st.subheader("Current Configuration")  
