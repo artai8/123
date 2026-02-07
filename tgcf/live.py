@@ -18,30 +18,54 @@ from tgcf.utils import clean_session_files, send_message
   
   
 async def _send_grouped_messages(grouped_id: int) -> None:  
-    """发送缓存中的媒体组到所有目标"""  
+    """发送缓存中的媒体组到所有目标，对每条消息应用插件"""  
     if grouped_id not in st.GROUPED_CACHE:  
         return  
     for chat_id, messages in st.GROUPED_CACHE[grouped_id].items():  
         if chat_id not in config.from_to:  
             continue  
         dest = config.from_to.get(chat_id)  
-        # 应用插件到第一条消息（代表整组）  
-        tm = await apply_plugins(messages[0])  
-        if not tm:  
+          
+        # 对每条消息应用插件  
+        processed_messages = []  
+        for msg in messages:  
+            tm = await apply_plugins(msg)  
+            if not tm:  
+                continue  
+            # 如果插件修改了文件，使用修改后的文件  
+            if tm.new_file:  
+                # 创建新的Message对象，使用修改后的文件  
+                msg.message.media.document.attributes[0].file_name = tm.new_file  
+            processed_messages.append(msg.message)  
+            tm.clear()  
+          
+        if not processed_messages:  
             continue  
+              
         for d in dest:  
             # 处理回复关系（仅对第一条消息生效）  
+            reply_to = None  
             if messages[0].is_reply:  
                 r_event = st.DummyEvent(chat_id, messages[0].reply_to_msg_id)  
                 r_event_uid = st.EventUid(r_event)  
                 if r_event_uid in st.stored:  
-                    tm.reply_to = st.stored.get(r_event_uid).get(d)  
+                    reply_to = st.stored.get(r_event_uid).get(d)  
+              
             # 发送媒体组  
-            fwded_msgs = await send_message(d, tm, grouped_messages=messages)  
-            # 存储时以第一条消息的 EventUid 为键，值为列表（用于后续编辑/删除同步）  
-            first_event_uid = st.EventUid(st.DummyEvent(chat_id, messages[0].id))  
-            st.stored[first_event_uid] = {d: fwded_msgs}  
-        tm.clear()  
+            tm = await apply_plugins(messages[0])  # 使用第一条消息的TgcfMessage作为模板  
+            if tm:  
+                tm.reply_to = reply_to  
+                fwded_msgs = await send_message(d, tm, grouped_messages=processed_messages)  
+                # 存储每条消息的映射  
+                for i, original_msg in enumerate(messages):  
+                    event_uid = st.EventUid(st.DummyEvent(chat_id, original_msg.id))  
+                    if event_uid not in st.stored:  
+                        st.stored[event_uid] = {}  
+                    if isinstance(fwded_msgs, list) and i < len(fwded_msgs):  
+                        st.stored[event_uid].update({d: fwded_msgs[i]})  
+                    elif not isinstance(fwded_msgs, list):  
+                        st.stored[event_uid].update({d: fwded_msgs})  
+                tm.clear()  
   
   
 async def new_message_handler(event: Union[Message, events.NewMessage]) -> None:  
@@ -90,23 +114,38 @@ async def new_message_handler(event: Union[Message, events.NewMessage]) -> None:
 async def edited_message_handler(event) -> None:  
     """Handle message edits."""  
     message = event.message  
-  
     chat_id = event.chat_id  
   
     if chat_id not in config.from_to:  
         return  
   
     logging.info(f"Message edited in {chat_id}")  
-  
     event_uid = st.EventUid(event)  
   
-    tm = await apply_plugins(message)  
+    # 检查是否是媒体组中的消息  
+    grouped_ids = st.get_grouped_messages(chat_id, message.id)  
+    if grouped_ids:  
+        # 处理媒体组编辑  
+        for msg_id in grouped_ids:  
+            uid = st.EventUid(st.DummyEvent(chat_id, msg_id))  
+            fwded_msgs = st.stored.get(uid)  
+            if fwded_msgs:  
+                tm = await apply_plugins(message)  
+                if tm:  
+                    for _, fwded_msg in fwded_msgs.items():  
+                        if config.CONFIG.live.delete_on_edit == message.text:  
+                            await fwded_msg.delete()  
+                        else:  
+                            await fwded_msg.edit(tm.text)  
+                    tm.clear()  
+        return  
   
+    # 原有单消息编辑逻辑  
+    tm = await apply_plugins(message)  
     if not tm:  
         return  
   
     fwded_msgs = st.stored.get(event_uid)  
-  
     if fwded_msgs:  
         for _, msg in fwded_msgs.items():  
             if config.CONFIG.live.delete_on_edit == message.text:  
@@ -117,7 +156,6 @@ async def edited_message_handler(event) -> None:
         return  
   
     dest = config.from_to.get(chat_id)  
-  
     for d in dest:  
         await send_message(d, tm)  
     tm.clear()  
@@ -130,13 +168,29 @@ async def deleted_message_handler(event):
         return  
   
     logging.info(f"Message deleted in {chat_id}")  
+      
+    # 检查是否是媒体组中的消息  
+    for msg_id in event.deleted_ids:  
+        grouped_ids = st.get_grouped_messages(chat_id, msg_id)  
+        if grouped_ids:  
+            # 删除整个媒体组  
+            for gid in grouped_ids:  
+                uid = st.EventUid(st.DummyEvent(chat_id, gid))  
+                fwded_msgs = st.stored.get(uid)  
+                if fwded_msgs:  
+                    for _, msg in fwded_msgs.items():  
+                        await msg.delete()  
+                    st.stored.pop(uid, None)  
+            return  
   
-    event_uid = st.EventUid(event)  
-    fwded_msgs = st.stored.get(event_uid)  
-    if fwded_msgs:  
-        for _, msg in fwded_msgs.items():  
-            await msg.delete()  
-        return  
+    # 原有单消息删除逻辑  
+    for msg_id in event.deleted_ids:  
+        event_uid = st.EventUid(st.DummyEvent(chat_id, msg_id))  
+        fwded_msgs = st.stored.get(event_uid)  
+        if fwded_msgs:  
+            for _, msg in fwded_msgs.items():  
+                await msg.delete()  
+            st.stored.pop(event_uid, None)  
   
   
 ALL_EVENTS = {  
