@@ -22,6 +22,29 @@ from tgcf.plugins import apply_plugins, load_async_plugins
 from tgcf.utils import clean_session_files, send_message  
   
   
+async def _send_past_grouped(client: TelegramClient, src: int, dest: List[int], messages: List[Message]) -> None:  
+    """发送 past 模式下聚合的媒体组"""  
+    if not messages:  
+        return  
+    # 应用插件到第一条消息（代表整组）  
+    tm = await apply_plugins(messages[0])  
+    if not tm:  
+        return  
+    for d in dest:  
+        # 处理回复关系（仅对第一条消息生效）  
+        if messages[0].is_reply:  
+            r_event = st.DummyEvent(messages[0].chat_id, messages[0].reply_to_msg_id)  
+            r_event_uid = st.EventUid(r_event)  
+            if r_event_uid in st.stored:  
+                tm.reply_to = st.stored.get(r_event_uid).get(d)  
+        # 发送媒体组  
+        fwded_msgs = await send_message(d, tm, grouped_messages=messages)  
+        # 存储时以第一条消息的 EventUid 为键，值为列表（用于后续编辑/删除同步）  
+        first_event_uid = st.EventUid(st.DummyEvent(messages[0].chat_id, messages[0].id))  
+        st.stored[first_event_uid] = {d: fwded_msgs}  
+    tm.clear()  
+  
+  
 async def forward_job() -> None:  
     """Forward all existing messages in the concerned chats."""  
     clean_session_files()  
@@ -108,4 +131,7 @@ async def forward_job() -> None:
                     logging.exception(err)  
   
             # 处理剩余的媒体组  
-            for gid, msgs in grouped  
+            for gid, msgs in grouped_buffer.items():  
+                await _send_past_grouped(client, src, dest, msgs)  
+                processed_groups.add(gid)  
+            grouped_buffer.clear()
