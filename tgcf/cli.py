@@ -56,7 +56,27 @@ def get_args() -> argparse.Namespace:
         "--version",  
         action="version",  
         version="%(prog)s 1.1.8",  
+    )  
+    return parser.parse_args()  
   
   
-Wiki pages you might want to explore:  
-- [Plugin System (artai8/123)](/wiki/artai8/123#5)
+def main() -> None:  
+    """The main function."""  
+    args = get_args()  
+    CONFIG = read_config(args.config)  
+      
+    if args.verbose:  
+        logging.basicConfig(level=logging.INFO)  
+      
+    mode = args.mode if hasattr(args, 'mode') else Mode.LIVE  
+      
+    if mode == Mode.PAST:  
+        from tgcf.past import forward_job  # pylint: disable=import-outside-toplevel  
+        asyncio.run(forward_job())  
+    else:  
+        from tgcf.live import start_sync  # pylint: disable=import-outside-toplevel  
+        asyncio.run(start_sync())  
+  
+  
+if __name__ == "__main__":  
+    main()
