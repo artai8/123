@@ -1,7 +1,6 @@
 from typing import Dict, List, Optional  
 import asyncio  
 import logging  
-from datetime import datetime, timedelta  
   
 from pymongo.collection import Collection  
 from telethon.tl.custom.message import Message  
@@ -37,10 +36,12 @@ stored: Dict[EventUid, Dict[int, Message]] = {}
 CONFIG_TYPE: int = 0  
 mycol: Collection = None  
   
-# 新增：媒体组临时缓存与超时管理  
+# 媒体组临时缓存与超时管理  
 GROUPED_CACHE: Dict[int, Dict[int, List[Message]]] = {}  # grouped_id -> {chat_id: [messages]}  
 GROUPED_TIMERS: Dict[int, asyncio.Task] = {}  # grouped_id -> timer task  
 GROUPED_TIMEOUT = 1.5  # 秒，等待同组其他消息的超时时间  
+# 媒体组存储映射：grouped_id -> {chat_id: [original_msg_ids]}  
+GROUPED_MAPPING: Dict[int, Dict[int, List[int]]] = {}  
   
   
 async def _flush_group(grouped_id: int) -> None:  
@@ -61,12 +62,23 @@ def add_to_group_cache(chat_id: int, grouped_id: int, message: Message) -> None:
     """将消息加入媒体组缓存，并启动/重置超时定时器"""  
     if grouped_id not in GROUPED_CACHE:  
         GROUPED_CACHE[grouped_id] = {}  
+        GROUPED_MAPPING[grouped_id] = {}  
     if chat_id not in GROUPED_CACHE[grouped_id]:  
         GROUPED_CACHE[grouped_id][chat_id] = []  
+        GROUPED_MAPPING[grouped_id][chat_id] = []  
     GROUPED_CACHE[grouped_id][chat_id].append(message)  
+    GROUPED_MAPPING[grouped_id][chat_id].append(message.id)  
   
     # 重置定时器  
     if grouped_id in GROUPED_TIMERS:  
         GROUPED_TIMERS[grouped_id].cancel()  
     loop = asyncio.get_event_loop()  
-    GROUPED_TIMERS[grouped_id] = loop.call_later(GROUPED_TIMEOUT, lambda: asyncio.create_task(_flush_group(grouped_id)))
+    GROUPED_TIMERS[grouped_id] = loop.call_later(GROUPED_TIMEOUT, lambda: asyncio.create_task(_flush_group(grouped_id)))  
+  
+  
+def get_grouped_messages(chat_id: int, msg_id: int) -> Optional[List[int]]:  
+    """根据消息ID获取同组所有消息ID"""  
+    for grouped_id, mapping in GROUPED_MAPPING.items():  
+        if chat_id in mapping and msg_id in mapping[chat_id]:  
+            return mapping[chat_id]  
+    return None
