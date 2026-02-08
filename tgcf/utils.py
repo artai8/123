@@ -1,4 +1,4 @@
-# nb/utils.py —— 修复 Hidden Media / Spoiler Effect 无法转发的问题
+# tgcf/utils.py —— 修复 Hidden Media / Spoiler Effect 无法转发的问题
 
 import logging
 import asyncio
@@ -27,12 +27,12 @@ from telethon.tl.types import (
     MessageMediaDocument,
 )
 
-from nb import __version__
-from nb.config import CONFIG
-from nb.plugin_models import STYLE_CODES
+from tgcf import __version__
+from tgcf.config import CONFIG
+from tgcf.plugin_models import STYLE_CODES
 
 if TYPE_CHECKING:
-    from nb.plugins import TgcfMessage
+    from tgcf.plugins import TgcfMessage
 
 
 def _has_spoiler(message: Message) -> bool:
@@ -260,7 +260,7 @@ async def _send_album_via_raw_api(
 
 def platform_info():
     nl = "\n"
-    return f"""Running nb {__version__}\
+    return f"""Running tgcf {__version__}\
     \nPython {sys.version.replace(nl,"")}\
     \nOS {os.name}\
     \nPlatform {platform.system()} {platform.release()}\
