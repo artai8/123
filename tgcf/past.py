@@ -1,4 +1,4 @@
-# tgcf/past.py —— 已修复视频丢失 + 延迟无效问题
+# tgcf/past.py —— 已修复：视频丢失 + 页脚失效 + 延迟机制
 
 import asyncio
 import logging
@@ -58,7 +58,6 @@ async def _send_past_grouped(
                     if r_event_uid in st.stored:
                         tm_template.reply_to = st.stored.get(r_event_uid).get(d)
 
-                # ✅ 使用 grouped_tms 参数传递处理后的文本
                 fwded_msgs = await send_message(
                     d,
                     tm_template,
@@ -178,7 +177,6 @@ async def forward_job() -> None:
                     forward.offset = last_id
                     write_config(CONFIG, persist=False)
 
-                    # ✅ 正确的随机延迟：60~300 秒
                     delay_seconds = random.randint(60, 300)
                     logging.info(f"⏸️ 休息 {delay_seconds} 秒以避免触发限流...")
                     await asyncio.sleep(delay_seconds)
