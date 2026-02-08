@@ -3,17 +3,17 @@
 import logging
 import os
 import sys
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, validator  # pylint: disable=no-name-in-module
+from pydantic import BaseModel, validator
 from pymongo import MongoClient
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-from tgcf import storage as stg
-from tgcf.const import CONFIG_FILE_NAME
-from tgcf.plugin_models import PluginConfig
+from nb import storage as stg
+from nb.const import CONFIG_FILE_NAME
+from nb.plugin_models import PluginConfig
 
 pwd = os.getcwd()
 env_file = os.path.join(pwd, ".env")
@@ -24,7 +24,6 @@ load_dotenv(env_file)
 class Forward(BaseModel):
     """Blueprint for the forward object."""
 
-    # pylint: disable=too-few-public-methods
     con_name: str = ""
     use_this: bool = True
     source: Union[int, str] = ""
@@ -34,9 +33,8 @@ class Forward(BaseModel):
 
 
 class LiveSettings(BaseModel):
-    """Settings to configure how tgcf operates in live mode."""
+    """Settings to configure how nb operates in live mode."""
 
-    # pylint: disable=too-few-public-methods
     sequential_updates: bool = False
     delete_sync: bool = False
     delete_on_edit: Optional[str] = ".deleteMe"
@@ -45,12 +43,10 @@ class LiveSettings(BaseModel):
 class PastSettings(BaseModel):
     """Configuration for past mode."""
 
-    # pylint: disable=too-few-public-methods
     delay: int = 0
 
     @validator("delay")
-    def validate_delay(cls, val):  # pylint: disable=no-self-use,no-self-argument
-        """Check if the delay used by user is values. If not, use closest logical values."""
+    def validate_delay(cls, val):
         if val not in range(0, 101):
             logging.warning("delay must be within 0 to 100 seconds")
             if val > 100:
@@ -73,13 +69,12 @@ class LoginConfig(BaseModel):
 
 class BotMessages(BaseModel):
     start: str = "Hi! I am alive"
-    bot_help: str = "For details visit github.com/aahnik/tgcf"
+    bot_help: str = "For details visit github.com/artai8/nb"
 
 
 class Config(BaseModel):
-    """The blueprint for tgcf's whole config."""
+    """The blueprint for nb's whole config."""
 
-    # pylint: disable=too-few-public-
     pid: int = 0
     theme: str = "light"
     login: LoginConfig = LoginConfig()
@@ -109,7 +104,6 @@ def detect_config_type() -> int:
     if CONFIG_FILE_NAME in os.listdir():
         logging.info(f"{CONFIG_FILE_NAME} detected!")
         return 1
-
     else:
         logging.info(
             "config file not found. mongo not found. creating local config file."
@@ -168,22 +162,7 @@ async def get_id(client: TelegramClient, peer):
 async def load_from_to(
     client: TelegramClient, forwards: List[Forward]
 ) -> Dict[int, List[int]]:
-    """Convert a list of Forward objects to a mapping.
-
-    Args:
-        client: Instance of Telegram client (logged in)
-        forwards: List of Forward objects
-
-    Returns:
-        Dict: key = chat id of source
-                value = List of chat ids of destinations
-
-    Notes:
-    -> The Forward objects may contain username/phn no/links
-    -> But this mapping strictly contains signed integer chat ids
-    -> Chat ids are essential for how storage is implemented
-    -> Storage is essential for edit, delete and reply syncs
-    """
+    """Convert a list of Forward objects to a mapping."""
     from_to_dict = {}
 
     async def _(peer):
@@ -209,12 +188,10 @@ async def load_admins(client: TelegramClient):
 
 
 def setup_mongo(client):
-
     mydb = client[MONGO_DB_NAME]
     mycol = mydb[MONGO_COL_NAME]
     if not mycol.find_one({"_id": 0}):
-        mycol.insert_one({"_id": 0, "author": "tgcf", "config": Config().dict()})
-
+        mycol.insert_one({"_id": 0, "author": "nb", "config": Config().dict()})
     return mycol
 
 
@@ -228,26 +205,34 @@ def read_db():
     return cfg
 
 
-PASSWORD = os.getenv("PASSWORD", "tgcf")
+# ============================================================
+# 关键修复：变量定义必须在 detect_config_type() 调用之前
+# ============================================================
+
+PASSWORD = os.getenv("PASSWORD", "nb")
 ADMINS = []
 
 MONGO_CON_STR = os.getenv("MONGO_CON_STR")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "tgcf-config")
-MONGO_COL_NAME = os.getenv("MONGO_COL_NAME", "tgcf-instance-0")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "nb-config")
+MONGO_COL_NAME = os.getenv("MONGO_COL_NAME", "nb-instance-0")
 
 stg.CONFIG_TYPE = detect_config_type()
 CONFIG = read_config()
 
-if PASSWORD == "tgcf":
-    logging.warn(
-        "You have not set a password to protect the web access to tgcf.\nThe default password `tgcf` is used."
+if PASSWORD == "nb":
+    logging.warning(
+        "You have not set a password to protect the web access to nb.\n"
+        "The default password `nb` is used."
     )
+
 from_to = {}
 is_bot: Optional[bool] = None
 logging.info("config.py got executed")
 
 
-def get_SESSION(section: Any = CONFIG.login, default: str = 'tgcf_bot'):
+def get_SESSION(section: Any = None, default: str = "tgcf_bot"):
+    if section is None:
+        section = CONFIG.login
     if section.SESSION_STRING and section.user_type == 1:
         logging.info("using session string")
         SESSION = StringSession(section.SESSION_STRING)
