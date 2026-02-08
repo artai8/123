@@ -1,4 +1,4 @@
-# tgcf/plugins/caption.py —— 修复页脚不生效问题
+# tgcf/plugins/caption.py —— 修复 header/footer 不生效
 
 import logging
 
@@ -19,7 +19,7 @@ class TgcfCaption(TgcfPlugin):
         has_footer = bool(self.caption.footer.strip())
 
         if not has_header and not has_footer:
-            return tm  # 没有头尾直接返回
+            return tm
 
         if has_content:
             tm.text = f"{self.caption.header}{original_text}{self.caption.footer}"
