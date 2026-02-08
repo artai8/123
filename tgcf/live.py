@@ -1,4 +1,4 @@
-# tgcf/live.py —— live 模式也强制完整转发
+# nb/live.py
 
 import asyncio
 import logging
@@ -7,15 +7,16 @@ from typing import Union, List
 from telethon import TelegramClient, events
 from telethon.tl.custom.message import Message
 
-from tgcf import config, const
-from tgcf import storage as st
-from tgcf.bot import get_events
-from tgcf.config import CONFIG, get_SESSION
-from tgcf.plugins import apply_plugins, apply_plugins_to_group, load_async_plugins
-from tgcf.utils import clean_session_files, send_message
+from nb import config, const
+from nb import storage as st
+from nb.bot import get_events
+from nb.config import CONFIG, get_SESSION
+from nb.plugins import apply_plugins, apply_plugins_to_group, load_async_plugins
+from nb.utils import clean_session_files, send_message
 
 
-async def _send_grouped_messages(grouped_id: int, tms: List["TgcfMessage"]) -> None:
+async def _send_grouped_messages(grouped_id: int) -> None:
+    """发送缓存中的媒体组"""
     if grouped_id not in st.GROUPED_CACHE:
         return
 
@@ -25,6 +26,11 @@ async def _send_grouped_messages(grouped_id: int, tms: List["TgcfMessage"]) -> N
             continue
 
         dest = config.from_to.get(chat_id)
+
+        tms = await apply_plugins_to_group(messages)
+        if not tms:
+            continue
+
         tm_template = tms[0]
 
         for d in dest:
@@ -33,7 +39,7 @@ async def _send_grouped_messages(grouped_id: int, tms: List["TgcfMessage"]) -> N
                     d,
                     tm_template,
                     grouped_messages=[tm.message for tm in tms],
-                    grouped_tms=tms
+                    grouped_tms=tms,
                 )
 
                 for i, original_msg in enumerate(messages):
@@ -46,9 +52,8 @@ async def _send_grouped_messages(grouped_id: int, tms: List["TgcfMessage"]) -> N
                         st.stored[event_uid][d] = fwded_msgs
 
             except Exception as e:
-                logging.critical(f"🚨 live 模式组播失败但继续重试: {e}")
+                logging.critical(f"🚨 live 模式组播失败: {e}")
 
-    # 清理
     st.GROUPED_CACHE.pop(grouped_id, None)
     st.GROUPED_TIMERS.pop(grouped_id, None)
     st.GROUPED_MAPPING.pop(grouped_id, None)
@@ -90,7 +95,65 @@ async def new_message_handler(event: Union[Message, events.NewMessage]) -> None:
     tm.clear()
 
 
-# ... edited 和 deleted handler 保持不变 ...
+async def edited_message_handler(event) -> None:
+    chat_id = event.chat_id
+    if chat_id not in config.from_to:
+        return
+
+    event_uid = st.EventUid(event)
+    if event_uid not in st.stored:
+        return
+
+    # 检查是否触发 delete_on_edit
+    if CONFIG.live.delete_on_edit and event.message.text == CONFIG.live.delete_on_edit:
+        dest = config.from_to.get(chat_id, [])
+        for d in dest:
+            fwded = st.stored[event_uid].get(d)
+            if fwded:
+                try:
+                    mid = fwded.id if hasattr(fwded, "id") else fwded
+                    await event.client.delete_messages(d, mid)
+                except Exception as e:
+                    logging.error(f"❌ delete_on_edit 删除目标失败: {e}")
+        try:
+            await event.message.delete()
+        except Exception as e:
+            logging.error(f"❌ delete_on_edit 删除源失败: {e}")
+        del st.stored[event_uid]
+        return
+
+    dest = config.from_to.get(chat_id, [])
+    tm = await apply_plugins(event.message)
+    if not tm:
+        return
+
+    for d in dest:
+        fwded = st.stored[event_uid].get(d)
+        if fwded:
+            try:
+                mid = fwded.id if hasattr(fwded, "id") else fwded
+                await event.client.edit_message(d, mid, tm.text)
+            except Exception as e:
+                logging.error(f"❌ 编辑同步失败: {e}")
+    tm.clear()
+
+
+async def deleted_message_handler(event) -> None:
+    for deleted_id in event.deleted_ids:
+        for chat_id in list(config.from_to.keys()):
+            r_event = st.DummyEvent(chat_id, deleted_id)
+            event_uid = st.EventUid(r_event)
+            if event_uid not in st.stored:
+                continue
+            dest_map = st.stored[event_uid]
+            for d, fwded in dest_map.items():
+                try:
+                    mid = fwded.id if hasattr(fwded, "id") else fwded
+                    await event.client.delete_messages(d, mid)
+                except Exception as e:
+                    logging.error(f"❌ 删除同步失败: {e}")
+            del st.stored[event_uid]
+
 
 ALL_EVENTS = {
     "new": (new_message_handler, events.NewMessage()),
@@ -133,7 +196,6 @@ async def start_sync() -> None:
         logging.info(f"✅ 注册事件处理器: {key}")
 
     if config.is_bot and const.REGISTER_COMMANDS:
-        # 设置命令
         pass
 
     logging.info("🟢 live 模式启动完成")
