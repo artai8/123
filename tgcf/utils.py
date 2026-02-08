@@ -1,4 +1,4 @@
-"""Utility functions to smoothen your life."""
+# tgcf/utils.py —— 新增功能：支持 .replace(text, new='bold')
 
 import logging
 import os
@@ -30,7 +30,6 @@ def platform_info():
 
 
 async def send_message(recipient: EntityLike, tm: "TgcfMessage", grouped_messages: Optional[List[Message]] = None) -> Union[Message, List[Message]]:
-    """Forward or send a copy, depending on config. 支持媒体组发送."""
     client: TelegramClient = tm.client
 
     if CONFIG.show_forwarded_from:
@@ -39,12 +38,10 @@ async def send_message(recipient: EntityLike, tm: "TgcfMessage", grouped_message
         return await client.forward_messages(recipient, tm.message)
 
     if grouped_messages:
-        # ✅ 新增：验证媒体类型（加固）
         for msg in grouped_messages:
             if not (getattr(msg, "photo", None) or getattr(msg, "video", None)):
                 raise ValueError("Only photo/video messages are allowed in grouped send")
 
-        # ✅ caption 取自第一条有文本的消息
         caption = None
         for msg in grouped_messages:
             if msg.text and msg.text.strip():
@@ -64,30 +61,24 @@ async def send_message(recipient: EntityLike, tm: "TgcfMessage", grouped_message
 
 
 def cleanup(*files: str) -> None:
-    """Delete the file names passed as args."""
     for file in files:
         try:
             os.remove(file)
         except FileNotFoundError:
-            logging.info(f"File {file} does not exist, so cant delete it.")
+            logging.info(f"File {file} does not exist.")
 
 
 def stamp(file: str, user: str) -> str:
-    """Stamp the filename with the datetime, and user info."""
     now = str(datetime.now())
     outf = safe_name(f"{user} {now} {file}")
     try:
         os.rename(file, outf)
         return outf
     except Exception as err:
-        logging.warning(f"Stamping file name failed for {file} to {outf}. \n {err}")
+        logging.warning(f"重命名失败 {file} → {outf}: {err}")
 
 
 def safe_name(string: str) -> str:
-    """Return safe file name.
-
-    Certain characters in the file name can cause potential problems in rare scenarios.
-    """
     return re.sub(pattern=r"[-!@#$%^&*()\s]", repl="_", string=string)
 
 
@@ -98,17 +89,27 @@ def match(pattern: str, string: str, regex: bool) -> bool:
 
 
 def replace(pattern: str, new: str, string: str, regex: bool) -> str:
+    """
+    Replace text with support for style keywords like 'bold', 'italics'
+    Example: replace('hello', 'bold', 'hello world') → '**hello** world'
+    """
+
     def fmt_repl(matched):
         style = new
-        s = STYLE_CODES.get(style)
-        return f"{s}{matched.group(0)}{s}"
+        code = STYLE_CODES.get(style)
+        if code:
+            return f"{code}{matched.group(0)}{code}"
+        return style  # literal replacement
 
     if regex:
         if new in STYLE_CODES:
-            compliled_pattern = re.compile(pattern)
-            return compliled_pattern.sub(repl=fmt_repl, string=string)
+            compiled_pattern = re.compile(pattern)
+            return compiled_pattern.sub(repl=fmt_repl, string=string)
         return re.sub(pattern, new, string)
     else:
+        if new in STYLE_CODES:
+            code = STYLE_CODES[new]
+            return string.replace(pattern, f"{code}{pattern}{code}")
         return string.replace(pattern, new)
 
 
