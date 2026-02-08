@@ -1,8 +1,9 @@
-# tgcf/utils.py —— 已修复：强制完整转发媒体组
+# tgcf/utils.py —— 已修复：添加缺失的 import os
 
 import logging
 import asyncio
 import re
+import os  # ✅ 关键修复：必须显式导入 os
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Union
 
@@ -192,6 +193,8 @@ def replace(pattern: str, new: str, string: str, regex: bool) -> str:
 
 
 def clean_session_files():
+    """Delete .session and .session-journal files."""
     for item in os.listdir():
         if item.endswith(".session") or item.endswith(".session-journal"):
             os.remove(item)
+            logging.info(f"🧹 删除会话文件: {item}")
