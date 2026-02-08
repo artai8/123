@@ -11,9 +11,9 @@ from pymongo import MongoClient
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-from nb import storage as stg
-from nb.const import CONFIG_FILE_NAME
-from nb.plugin_models import PluginConfig
+from tgcf import storage as stg
+from tgcf.const import CONFIG_FILE_NAME
+from tgcf.plugin_models import PluginConfig
 
 pwd = os.getcwd()
 env_file = os.path.join(pwd, ".env")
@@ -33,7 +33,7 @@ class Forward(BaseModel):
 
 
 class LiveSettings(BaseModel):
-    """Settings to configure how nb operates in live mode."""
+    """Settings to configure how tgcf operates in live mode."""
 
     sequential_updates: bool = False
     delete_sync: bool = False
@@ -69,11 +69,11 @@ class LoginConfig(BaseModel):
 
 class BotMessages(BaseModel):
     start: str = "Hi! I am alive"
-    bot_help: str = "For details visit github.com/artai8/nb"
+    bot_help: str = "For details visit github.com/artai8/tgcf"
 
 
 class Config(BaseModel):
-    """The blueprint for nb's whole config."""
+    """The blueprint for tgcf's whole config."""
 
     pid: int = 0
     theme: str = "light"
@@ -191,7 +191,7 @@ def setup_mongo(client):
     mydb = client[MONGO_DB_NAME]
     mycol = mydb[MONGO_COL_NAME]
     if not mycol.find_one({"_id": 0}):
-        mycol.insert_one({"_id": 0, "author": "nb", "config": Config().dict()})
+        mycol.insert_one({"_id": 0, "author": "tgcf", "config": Config().dict()})
     return mycol
 
 
@@ -209,20 +209,20 @@ def read_db():
 # 关键修复：变量定义必须在 detect_config_type() 调用之前
 # ============================================================
 
-PASSWORD = os.getenv("PASSWORD", "nb")
+PASSWORD = os.getenv("PASSWORD", "tgcf")
 ADMINS = []
 
 MONGO_CON_STR = os.getenv("MONGO_CON_STR")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "nb-config")
-MONGO_COL_NAME = os.getenv("MONGO_COL_NAME", "nb-instance-0")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "tgcf-config")
+MONGO_COL_NAME = os.getenv("MONGO_COL_NAME", "tgcf-instance-0")
 
 stg.CONFIG_TYPE = detect_config_type()
 CONFIG = read_config()
 
-if PASSWORD == "nb":
+if PASSWORD == "tgcf":
     logging.warning(
-        "You have not set a password to protect the web access to nb.\n"
-        "The default password `nb` is used."
+        "You have not set a password to protect the web access to tgcf.\n"
+        "The default password `tgcf` is used."
     )
 
 from_to = {}
