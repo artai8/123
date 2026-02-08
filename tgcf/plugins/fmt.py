@@ -1,8 +1,8 @@
+# tgcf/plugins/fmt.py —— 已修复版本
+
 import logging
 from enum import Enum
 from typing import Any, Dict
-
-from pydantic import BaseModel  # pylint: disable=no-name-in-module
 
 from tgcf.plugin_models import STYLE_CODES, Format, Style
 from tgcf.plugins import TgcfMessage, TgcfPlugin
@@ -13,14 +13,16 @@ class TgcfFmt(TgcfPlugin):
 
     def __init__(self, data) -> None:
         self.format = data
-        logging.info(self.format)
+        logging.info(f"🎨 加载格式插件: {data.style}")
 
     def modify(self, tm: TgcfMessage) -> TgcfMessage:
-        if self.format.style is Style.PRESERVE:
+        if self.format.style is Style.PRESERVE or not tm.raw_text:
             return tm
-        msg_text: str = tm.raw_text
-        if not msg_text:
+
+        style_str = self.format.style.value
+        code = STYLE_CODES.get(style_str)
+        if not code:
             return tm
-        style = STYLE_CODES.get(self.format.style)
-        tm.text = f"{style}{msg_text}{style}"
+
+        tm.text = f"{code}{tm.raw_text}{code}"
         return tm
