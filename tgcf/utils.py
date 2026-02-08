@@ -1,4 +1,4 @@
-# tgcf/utils.py —— 支持混合 media group 发送和完整文本聚合
+# tgcf/utils.py —— 支持混合 media group 发送 + 文本聚合
 
 import logging
 import os
@@ -34,7 +34,7 @@ async def send_message(
     recipient: EntityLike,
     tm: "TgcfMessage",
     grouped_messages: Optional[List[Message]] = None,
-    grouped_tms: Optional[List["TgcfMessage"]] = None  # 新增参数：传入已处理的消息对象
+    grouped_tms: Optional[List["TgcfMessage"]] = None
 ) -> Union[Message, List[Message]]:
     """Send message or media group with full support for videos and captions."""
     client: TelegramClient = tm.client
@@ -45,7 +45,7 @@ async def send_message(
         return await client.forward_messages(recipient, tm.message)
 
     if grouped_messages and grouped_tms:
-        # ✅ 提取所有非空文本（来自 TgcfMessage 处理后）
+        # 提取所有处理后的文本
         captions = []
         for gtm in grouped_tms:
             if gtm.text and gtm.text.strip():
@@ -56,11 +56,11 @@ async def send_message(
         try:
             result = await client.send_file(
                 recipient,
-                [gtm.message for gtm in grouped_tms],  # 使用原始消息发送
+                [gtm.message for gtm in grouped_tms],
                 caption=final_caption,
                 reply_to=tm.reply_to,
                 force_document=False,
-                supports_streaming=True,  # ✅ 启用流式传输（对视频重要）
+                supports_streaming=True,
             )
             logging.info(f"✅ 成功发送包含 {len(grouped_messages)} 项的媒体组")
             return result
