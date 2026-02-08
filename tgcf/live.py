@@ -1,4 +1,4 @@
-# nb/live.py
+# tgcf/live.py
 
 import asyncio
 import logging
@@ -7,12 +7,12 @@ from typing import Union, List
 from telethon import TelegramClient, events
 from telethon.tl.custom.message import Message
 
-from nb import config, const
-from nb import storage as st
-from nb.bot import get_events
-from nb.config import CONFIG, get_SESSION
-from nb.plugins import apply_plugins, apply_plugins_to_group, load_async_plugins
-from nb.utils import clean_session_files, send_message
+from tgcf import config, const
+from tgcf import storage as st
+from tgcf.bot import get_events
+from tgcf.config import CONFIG, get_SESSION
+from tgcf.plugins import apply_plugins, apply_plugins_to_group, load_async_plugins
+from tgcf.utils import clean_session_files, send_message
 
 
 async def _send_grouped_messages(grouped_id: int) -> None:
