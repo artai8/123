@@ -1,4 +1,4 @@
-# tgcf/plugins/caption.py —— 已修复版本
+# tgcf/plugins/caption.py —— 修复页脚不生效问题
 
 import logging
 
@@ -10,19 +10,20 @@ class TgcfCaption(TgcfPlugin):
 
     def __init__(self, data) -> None:
         self.caption = data
-        logging.info(f"📝 加载标题插件: '{data.header}' + '{data.footer}'")
+        logging.info(f"📝 加载标题插件: header='{data.header}', footer='{data.footer}'")
 
     def modify(self, tm: TgcfMessage) -> TgcfMessage:
-        current_text = tm.text or ""
-
-        has_content = bool(current_text.strip())
+        original_text = tm.text or ""
+        has_content = bool(original_text.strip())
         has_header = bool(self.caption.header.strip())
         has_footer = bool(self.caption.footer.strip())
 
-        if has_header or has_footer:
-            if has_content:
-                tm.text = f"{self.caption.header}{current_text}{self.caption.footer}"
-            else:
-                tm.text = f"{self.caption.header}{self.caption.footer}"
+        if not has_header and not has_footer:
+            return tm  # 没有头尾直接返回
+
+        if has_content:
+            tm.text = f"{self.caption.header}{original_text}{self.caption.footer}"
+        else:
+            tm.text = f"{self.caption.header}{self.caption.footer}"
 
         return tm
