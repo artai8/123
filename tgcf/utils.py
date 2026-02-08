@@ -1,4 +1,4 @@
-# tgcf/utils.py —— 新增功能：支持 .replace(text, new='bold')
+# tgcf/utils.py —— 支持混合 media group 发送和完整文本聚合
 
 import logging
 import os
@@ -16,6 +16,7 @@ from tgcf import __version__
 from tgcf.config import CONFIG
 from tgcf.plugin_models import STYLE_CODES
 
+
 if TYPE_CHECKING:
     from tgcf.plugins import TgcfMessage
 
@@ -29,7 +30,13 @@ def platform_info():
     \n{platform.architecture()} {platform.processor()}"""
 
 
-async def send_message(recipient: EntityLike, tm: "TgcfMessage", grouped_messages: Optional[List[Message]] = None) -> Union[Message, List[Message]]:
+async def send_message(
+    recipient: EntityLike,
+    tm: "TgcfMessage",
+    grouped_messages: Optional[List[Message]] = None,
+    grouped_tms: Optional[List["TgcfMessage"]] = None  # 新增参数：传入已处理的消息对象
+) -> Union[Message, List[Message]]:
+    """Send message or media group with full support for videos and captions."""
     client: TelegramClient = tm.client
 
     if CONFIG.show_forwarded_from:
@@ -37,22 +44,38 @@ async def send_message(recipient: EntityLike, tm: "TgcfMessage", grouped_message
             return await client.forward_messages(recipient, grouped_messages)
         return await client.forward_messages(recipient, tm.message)
 
-    if grouped_messages:
-        for msg in grouped_messages:
-            if not (getattr(msg, "photo", None) or getattr(msg, "video", None)):
-                raise ValueError("Only photo/video messages are allowed in grouped send")
+    if grouped_messages and grouped_tms:
+        # ✅ 提取所有非空文本（来自 TgcfMessage 处理后）
+        captions = []
+        for gtm in grouped_tms:
+            if gtm.text and gtm.text.strip():
+                captions.append(gtm.text.strip())
 
-        caption = None
-        for msg in grouped_messages:
-            if msg.text and msg.text.strip():
-                caption = msg.text
-                break
+        final_caption = "\n\n".join(captions) if captions else ""
 
-        return await client.send_file(recipient, grouped_messages, caption=caption, reply_to=tm.reply_to)
+        try:
+            result = await client.send_file(
+                recipient,
+                [gtm.message for gtm in grouped_tms],  # 使用原始消息发送
+                caption=final_caption,
+                reply_to=tm.reply_to,
+                force_document=False,
+                supports_streaming=True,  # ✅ 启用流式传输（对视频重要）
+            )
+            logging.info(f"✅ 成功发送包含 {len(grouped_messages)} 项的媒体组")
+            return result
+        except Exception as e:
+            logging.error(f"❌ 发送媒体组失败: {e}")
+            raise
 
     if tm.new_file:
         message = await client.send_file(
-            recipient, tm.new_file, caption=tm.text, reply_to=tm.reply_to
+            recipient,
+            tm.new_file,
+            caption=tm.text,
+            reply_to=tm.reply_to,
+            force_document=False,
+            supports_streaming=True,
         )
         return message
 
@@ -89,17 +112,10 @@ def match(pattern: str, string: str, regex: bool) -> bool:
 
 
 def replace(pattern: str, new: str, string: str, regex: bool) -> str:
-    """
-    Replace text with support for style keywords like 'bold', 'italics'
-    Example: replace('hello', 'bold', 'hello world') → '**hello** world'
-    """
-
     def fmt_repl(matched):
         style = new
         code = STYLE_CODES.get(style)
-        if code:
-            return f"{code}{matched.group(0)}{code}"
-        return style  # literal replacement
+        return f"{code}{matched.group(0)}{code}" if code else new
 
     if regex:
         if new in STYLE_CODES:
