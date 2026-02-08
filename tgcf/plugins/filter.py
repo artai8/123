@@ -1,9 +1,9 @@
 import logging
 from typing import List
 
-from nb.plugin_models import TextFilter
-from nb.plugins import TgcfMessage, TgcfPlugin
-from nb.utils import match
+from tgcf.plugin_models import TextFilter
+from tgcf.plugins import TgcfMessage, TgcfPlugin
+from tgcf.utils import match
 
 
 class TgcfFilter(TgcfPlugin):
