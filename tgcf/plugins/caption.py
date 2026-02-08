@@ -14,14 +14,14 @@ class TgcfCaption(TgcfPlugin):
         self._footer = data.footer.strip()
         logging.info(f"📝 加载标题插件: header='{self._header}', footer='{self._footer}'")
 
-        # ✅ 标记字段（用于去重）
+        # ✅ 创建唯一标签用于识别是否已处理
         self._tag = f"__CAPTION_ADDED_{hash(self._header + self._footer)}__"
 
     def modify(self, tm: TgcfMessage) -> TgcfMessage:
         original_text = tm.text or ""
 
-        # ✅ 安全防护：防止重复添加
-        if self._tag in getattr(tm, "_processed_tags", set()):
+        # ✅ 安全防护：防止重复处理
+        if hasattr(tm, "_processed_tags") and self._tag in tm._processed_tags:
             logging.debug("⚠️ 检测到重复处理，跳过 caption 插件")
             return tm
 
@@ -38,13 +38,19 @@ class TgcfCaption(TgcfPlugin):
 
         final_text = original_text
 
-        # ✅ 只有在没有匹配的情况下才添加
-        if has_header and not final_text.startswith(self._header):
-            final_text = self._header + ("\n\n" if final_text else "") + final_text
+        # ✅ 添加 header（仅当开头不是该 header）
+        if has_header:
+            stripped_final = final_text.lstrip()
+            if not stripped_final.startswith(self._header):
+                sep = "\n\n" if has_content else ""
+                final_text = self._header + sep + final_text
 
-        if has_footer and not final_text.endswith(self._footer):
-            sep = "\n\n" if final_text and not final_text.endswith("\n") else ""
-            final_text += sep + self._footer
+        # ✅ 添加 footer（仅当结尾不是该 footer）
+        if has_footer:
+            stripped_final = final_text.rstrip()
+            if not stripped_final.endswith(self._footer):
+                sep = "\n\n" if has_content else ""
+                final_text += sep + self._footer
 
         tm.text = final_text
         tm._processed_tags.add(self._tag)  # ✅ 标记为已处理
