@@ -1,10 +1,8 @@
-# tgcf/utils.py —— 支持混合 media group 发送 + 文本聚合
+# tgcf/utils.py —— 已修复：强制完整转发媒体组
 
 import logging
-import os
-import platform
+import asyncio
 import re
-import sys
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Union
 
@@ -34,53 +32,117 @@ async def send_message(
     recipient: EntityLike,
     tm: "TgcfMessage",
     grouped_messages: Optional[List[Message]] = None,
-    grouped_tms: Optional[List["TgcfMessage"]] = None
+    grouped_tms: Optional[List["TgcfMessage"]] = None,
 ) -> Union[Message, List[Message]]:
-    """Send message or media group with full support for videos and captions."""
+    """
+    强制将一组消息作为 album 发送。
+    - 成功则返回结果
+    - 失败则指数退避 + 无限重试
+    - 不降级为单条发送
+    """
     client: TelegramClient = tm.client
 
-    if CONFIG.show_forwarded_from:
-        if grouped_messages:
-            return await client.forward_messages(recipient, grouped_messages)
-        return await client.forward_messages(recipient, tm.message)
+    # === 情况 1: 尝试直接转发原始 album ===
+    if CONFIG.show_forwarded_from and grouped_messages:
+        attempt = 0
+        delay = 5
+        while True:
+            try:
+                result = await client.forward_messages(recipient, grouped_messages)
+                logging.info(f"✅ 成功直接转发媒体组 → 第 {attempt+1} 次尝试")
+                return result
+            except TimeoutError as te:
+                logging.warning(f"⏳ 转发超时 (attempt={attempt+1}): {te}")
+            except ConnectionError as ce:
+                logging.warning(f"🔌 连接中断 (attempt={attempt+1}): {ce}")
+            except Exception as e:
+                if "FLOOD_WAIT" in str(e).upper():
+                    wait_sec = int(re.search(r'\d+', str(e)).group())
+                    logging.critical(f"⛔ FloodWait 触发！必须等待 {wait_sec} 秒...")
+                    await asyncio.sleep(wait_sec + 10)
+                    delay = 60
+                else:
+                    logging.error(f"❌ 直接转发失败 (attempt={attempt+1}): {e}")
 
+            attempt += 1
+            delay = min(delay * 2, 300)  # 最长 5 分钟
+            await asyncio.sleep(delay)
+
+    # === 情况 2: 复制模式发送（apply_plugins 后）===
     if grouped_messages and grouped_tms:
-        # 提取所有处理后的文本
-        captions = []
-        for gtm in grouped_tms:
-            if gtm.text and gtm.text.strip():
-                captions.append(gtm.text.strip())
+        # 合并所有文本
+        combined_caption = "\n\n".join([
+            gtm.text.strip() for gtm in grouped_tms
+            if gtm.text and gtm.text.strip()
+        ])
 
-        final_caption = "\n\n".join(captions) if captions else ""
+        files_to_send = []
+        for msg in grouped_messages:
+            if msg.photo or msg.video or msg.gif or msg.document:
+                files_to_send.append(msg)
 
+        if not files_to_send:
+            # 至少发一条空消息
+            try:
+                return await client.send_message(recipient, combined_caption or "空相册", reply_to=tm.reply_to)
+            except Exception as e:
+                logging.error(f"❌ 空消息发送失败: {e}")
+                raise RuntimeError("无法发送空相册")
+
+        # 开始重试循环
+        attempt = 0
+        delay = 5
+        while True:
+            try:
+                result = await client.send_file(
+                    recipient,
+                    files_to_send,
+                    caption=combined_caption or None,
+                    reply_to=tm.reply_to,
+                    supports_streaming=True,
+                    force_document=False,
+                    allow_cache=False,
+                    parse_mode="md"
+                )
+                logging.info(f"✅ 成功复制发送媒体组（{len(files_to_send)} 项）→ 第 {attempt+1} 次尝试")
+                return result
+
+            except TimeoutError as te:
+                logging.warning(f"⏳ 网络超时 (attempt={attempt+1}): {te}")
+            except ConnectionError as ce:
+                logging.warning(f"🔌 连接中断 (attempt={attempt+1}): {ce}")
+            except Exception as e:
+                if "FLOOD_WAIT" in str(e).upper():
+                    wait_sec = int(re.search(r'\d+', str(e)).group())
+                    logging.critical(f"⛔ FloodWait 触发！等待 {wait_sec} 秒...")
+                    await asyncio.sleep(wait_sec + 10)
+                    delay = 60
+                else:
+                    logging.error(f"❌ 发送失败 (attempt={attempt+1}): {e}")
+
+            attempt += 1
+            delay = min(delay * 2, 300)
+            await asyncio.sleep(delay)
+
+    # === 情况 3: 单条消息处理（非 grouped）===
+    if tm.new_file:
         try:
-            result = await client.send_file(
+            return await client.send_file(
                 recipient,
-                [gtm.message for gtm in grouped_tms],
-                caption=final_caption,
+                tm.new_file,
+                caption=tm.text,
                 reply_to=tm.reply_to,
-                force_document=False,
                 supports_streaming=True,
             )
-            logging.info(f"✅ 成功发送包含 {len(grouped_messages)} 项的媒体组")
-            return result
         except Exception as e:
-            logging.error(f"❌ 发送媒体组失败: {e}")
-            raise
+            logging.error(f"❌ 新文件发送失败: {e}")
 
-    if tm.new_file:
-        message = await client.send_file(
-            recipient,
-            tm.new_file,
-            caption=tm.text,
-            reply_to=tm.reply_to,
-            force_document=False,
-            supports_streaming=True,
-        )
-        return message
-
-    tm.message.text = tm.text
-    return await client.send_message(recipient, tm.message, reply_to=tm.reply_to)
+    try:
+        tm.message.text = tm.text
+        return await client.send_message(recipient, tm.message, reply_to=tm.reply_to)
+    except Exception as e:
+        logging.error(f"❌ 文本消息发送失败: {e}")
+        return None
 
 
 def cleanup(*files: str) -> None:
