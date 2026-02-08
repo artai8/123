@@ -10,13 +10,19 @@ class TgcfCaption(TgcfPlugin):
 
     def __init__(self, data) -> None:
         self.caption = data
-        logging.info(f"加载标题插件: header='{data.header}', footer='{data.footer}'")
+        logging.info(f"📝 加载标题插件: '{data.header}' + '{data.footer}'")
 
     def modify(self, tm: TgcfMessage) -> TgcfMessage:
-        # 只有当消息有可见文本时才加头尾
-        if tm.text and (self.caption.header or self.caption.footer):
-            tm.text = f"{self.caption.header}{tm.text}{self.caption.footer}"
-        elif not tm.text and (self.caption.header or self.caption.footer):
-            # 即使原消息无文本，也可仅发送 header/footer
-            tm.text = f"{self.caption.header}{self.caption.footer}"
+        current_text = tm.text or ""
+
+        has_content = bool(current_text.strip())
+        has_header = bool(self.caption.header.strip())
+        has_footer = bool(self.caption.footer.strip())
+
+        if has_header or has_footer:
+            if has_content:
+                tm.text = f"{self.caption.header}{current_text}{self.caption.footer}"
+            else:
+                tm.text = f"{self.caption.header}{self.caption.footer}"
+
         return tm
