@@ -48,7 +48,7 @@ async def _flush_group(grouped_id: int) -> None:
     if grouped_id not in GROUPED_CACHE:
         return
     try:
-        from nb.live import _send_grouped_messages  # 避免循环导入
+        from tgcf.live import _send_grouped_messages  # 避免循环导入
         await _send_grouped_messages(grouped_id)
     except Exception as e:
         logging.exception(
